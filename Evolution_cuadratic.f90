@@ -159,8 +159,8 @@ contains
         real(qp), intent(in) :: y(nvar)
         real(qp) :: zpp_over_z
         zpp_over_z = exp(2.0_qp * y(4)) * (2.0_qp * y(3)**2 - Vprimeprime(y) - &
-                     2.0_qp * y(2) * Vprime(y) / y(3) - 3.5_qp * y(2)**2 * y(3) + &
-                     0.5_qp * exp(y(4)) * y(2)**4 / y(3)**2)
+                     2.0_qp * y(2) * Vprime(y) / y(3) - 3.5_qp * y(2)**2 + &
+                     0.5_qp * y(2)**4 / y(3)**2)
     end function zpp_over_z
 
 end program simanhosc
