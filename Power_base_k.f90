@@ -3,39 +3,58 @@ program simanhosc
     integer, parameter :: dp = selected_real_kind(15, 307)  ! Definir precisión aumentada
     real(dp), parameter :: twopi = 2.0_dp * acos(-1.0_dp)  ! Definir a partir de acos
     integer, parameter :: nvar = 7  ! Número de ecuaciones en el sistema
+    integer, parameter :: num_points = 8  ! Número de puntos para ln(a)
+    real(dp), parameter :: N_ref_ini = 1.0_dp  !5.0_dp  ! Valor inicial de N_ref
+    real(dp), parameter :: N_ref_fin = 5.0_dp  !40.0_dp  ! Valor final de N_ref
 
     ! Variables principales
     real(dp) :: kphys, kcom, dt, N_ref  ! Modo físico, modo conforme y parámetro N_ref
     real(dp) :: y(nvar), yinit(nvar)  ! Variables del sistema
     integer :: unit_output, unit_summary  ! Unidades para archivos de salida
     logical :: change, break, elipse  ! Variables de control
-    integer :: j, iter  ! Contador de iteraciones y de archivos
+    integer :: j, iter, cont_N  ! Contador de iteraciones y de archivos
+    real(dp) :: kcom_values(num_points), ln_a_values(num_points)
+    character(len=100) :: filename  ! Nombre del archivo de salida
 
     ! Configuración para el entorno
     real(dp), parameter :: a_ref = 1.0_dp  ! 1.0_dp
     real(dp), parameter :: p = 2.1_dp  ! 2.1 6.1 --2.5 6.1
     real(dp), parameter :: h_tran = 20.0_dp  ! Parámetro de transición para Heaviside suave
-    integer, parameter :: mod_pref = 2  ! 0 = Close, 1 = Open Mod 1, 2 = Open Mod 2, 3 = Open Mod 3, ...
+    integer, parameter :: mod_pref = 5 ! 0 = Close, 1 = Open Mod 1, 2 = Open Mod 2, 3 = Open Mod 3, ...
 
     real(dp) :: k_gamma, lE, lO, NE, NO
-    character(len=100) :: filename  ! Nombre del archivo de salida
 
     ! Inicializar la variable elipse
     elipse = .false.  ! Cambiar a .false. para solo crear el archivo de resumen
 
+    ! Calcular kphys a partir de yinit(3)
+    yinit(1) = 18.0_dp  ! Campo escalar inicial
+    yinit(2) = 0.0_dp  ! Derivada de φ inicial
+    yinit(3) = hubb(yinit)  ! Cálculo inicial de Hubble H
+    yinit(4) = -5.0_dp   !0.0_dp   ! Establecer ln(a) inicial
+    kphys = 1.0d3 * yinit(3)  ! Modo físico inicial
+
+    ! Generar valores de kcom uniformemente espaciados
+    kcom_values = [(kphys * exp(N_ref_ini) + (cont_N - 1) * (kphys * exp(N_ref_fin) - &
+                  kphys * exp(N_ref_ini)) / (num_points - 1), cont_N = 1, num_points)]
+
+    ! Calcular los valores correspondientes de ln(a)
+    ln_a_values = log(kcom_values / kphys)
+
     ! Abrir archivo de resumen para guardar los últimos valores
     unit_summary = 20
-    open(unit=unit_summary, file="Summary_Evolution_Cosmic_Perturbations_N.dat", status="unknown", action="write", form="formatted")
+    open(unit=unit_summary, file="Summary_Evolution_Cosmic_Perturbations_N_uni_5.dat", &
+    status="unknown", action="write", form="formatted")
 
     ! Bucle para iterar sobre los valores de N_ref
-    do iter = 1, 8
-        N_ref = 5.0_dp * iter
+    do iter = 1, num_points
+        N_ref = ln_a_values(iter)
 
         ! Configuración inicial
         yinit(1) = 18.0_dp  ! Campo escalar inicial 30
         yinit(2) = 0.0_dp  ! Derivada de φ inicial
         yinit(3) = hubb(yinit)  ! Cálculo inicial de Hubble H
-        yinit(4) = 0.0_dp  ! Establecer ln(a) inicial a N_ref
+        yinit(4) = -5.0_dp   !0.0_dp  ! Establecer ln(a) inicial en 0 para usar el atractor
         kphys = 1.0d3 * yinit(3)  ! Modo físico inicial
 
         dt = twopi * (1.0_dp / (1.0d3 * yinit(3))) / 60.0_dp  ! 🔹 Paso de tiempo inicial basado en y(3)
@@ -53,10 +72,10 @@ program simanhosc
         ! 🔹 Evolución del background hasta ln(a) >= N_ref
         y = yinit
         do while (change)
-            call gl10(y, dt)  ! Integración con Gauss-Legendre de orden 10
+            call gl10(y, dt, kcom)  ! Integración con Gauss-Legendre de orden 10
             if (y(4) >= N_ref) then
                 yinit = y  ! Guardar estado inicial ajustado
-                kcom = kphys * exp(y(4))  ! Cálculo del modo conforme
+                kcom = (kphys/twopi) * exp(y(4))  ! Cálculo del modo conforme
 
                 ! Inicialización de perturbaciones escalares de Sasaki-Mukhanov
                 yinit(5) = 1.0_dp / sqrt(2.0_dp * sqrt(kcom**2 - zpp_over_z(yinit)))
@@ -78,7 +97,7 @@ program simanhosc
         y = yinit
         j = 0
         do while (break)
-            call gl10(y, dt / 20.0_dp)  ! Integración con paso refinado 20
+            call gl10(y, dt / 20.0_dp, kcom)  ! Integración con paso refinado 20
             j = j + 1
             if (epsilon(y) >= 1.0_dp) then
                 break = .false.  ! Condición de salida
@@ -112,9 +131,10 @@ program simanhosc
 contains
 
     ! 🔹 Ecuaciones del sistema
-    subroutine evalf(y, dydx)
+    subroutine evalf(y, dydx, kcom)
         real(dp), intent(in) :: y(nvar)
         real(dp), intent(out) :: dydx(nvar)
+        real(dp), intent(in) :: kcom
 
         ! Ecuaciones de movimiento del sistema
         dydx(1) = y(2)
@@ -124,14 +144,15 @@ contains
         dydx(5) = y(6) * exp(-y(4))
         dydx(6) = -(kcom**2 - zpp_over_z(y) - y(7)**2) * y(5) * exp(-y(4))
         dydx(7) = -2.0_dp * (y(7) * y(6) / y(5)) * exp(-y(4)) + &
-                  source_open(mod_pref, y) * exp(-y(4)) / (2.0_dp * y(7) * y(5)**2)  ! Adición de la fuente
+                  source_open(mod_pref, y, kcom) * exp(-y(4)) / (2.0_dp * y(7) * y(5)**2)  ! Adición de la fuente
     end subroutine evalf
 
     ! 🔹 Integrador Gauss-Legendre de orden 10
-    subroutine gl10(y, dt)
+    subroutine gl10(y, dt, kcom)
         integer, parameter :: s = 5, n = 7
         real(dp), intent(inout) :: y(n)
         real(dp), intent(in) :: dt
+        real(dp), intent(in) :: kcom
         real(dp) :: g(n, s)
         integer :: i, k
 
@@ -159,7 +180,7 @@ contains
         do k = 1, 16
             g = matmul(g, a)
             do i = 1, s
-                call evalf(y + g(:, i) * dt, g(:, i))
+                call evalf(y + g(:, i) * dt, g(:, i), kcom)
             end do
         end do
 
@@ -224,9 +245,10 @@ contains
     end function SmoothHeaviside
 
     ! 🔹 Función que devuelve el término adicional en dy3/dNe según mod_pref
-    function source_open(mod_pref, y) result(source)
+    function source_open(mod_pref, y, kcom) result(source)
         integer, intent(in) :: mod_pref
         real(dp), intent(in) :: y(nvar)
+        real(dp), intent(in) :: kcom
         real(dp) :: source
 
         select case (mod_pref)
