@@ -1,6 +1,6 @@
 program simanhosc
     implicit none
-    real, parameter :: twopi = 6.28318530717958647692528676655900577!twopi = 2.0 * acos(-1.0)  ! Definir a partir de acos
+    real, parameter :: twopi = 2.0 * acos(-1.0)  ! Definir a partir de acos
     integer, parameter :: nvar = 7  ! Número de ecuaciones en el sistema
 
     ! Variables principales
@@ -24,11 +24,11 @@ program simanhosc
 
     ! Abrir archivo de resumen para guardar los últimos valores
     unit_summary = 20
-    open(unit=unit_summary, file="Summary_Evolution_Cosmic_Perturbations_N_7_EO78H_TEST_3.dat", status="unknown", action="write", form="formatted")
+    open(unit=unit_summary, file="Summary_Evolution_Cosmic_Perturbations_N_7_PP_EO78H.dat", status="unknown", action="write", form="formatted")
 
     ! Bucle para iterar sobre los valores de N_ref
-    do iter = 1, 24!0   !100
-        N_ref = 0.3 * iter   !0.6 * iter
+    do iter = 1, 120   !100
+        N_ref = 0.6 * iter   !0.6 * iter
 
         ! Configuración inicial
         yinit(1) = 25.0  ! Campo escalar inicial 30
@@ -58,14 +58,14 @@ program simanhosc
                 kcom = kphys * exp(y(4))  ! Cálculo del modo conforme
 
                 ! Inicialización de perturbaciones escalares de Sasaki-Mukhanov
-                yinit(5) = 1.0 / sqrt(2.0 * sqrt(kcom*kcom - zpp_over_z(yinit)))
+                yinit(5) = 1.0
                 yinit(6) = 0.0
-                yinit(7) = sqrt(kcom**2 - zpp_over_z(yinit))
+                yinit(7) = 1.0
 
                 ! Inicialización de la fuente
                 k_gamma = 10.0 * kcom
-                lE = exp( (1.0 + 0.7)*log(kphys/twopi) - 0.7 * log (yinit(3)) )
-                lO = exp( (1.0 + 0.8)*log(kphys/twopi) - 0.8 * log (yinit(3)) )
+                lE = - 0.7 * log(yinit(3))
+                lO = - 0.8 * log(yinit(3))
                 NE = 25.0
                 NO = 45.0
 
@@ -77,7 +77,7 @@ program simanhosc
         y = yinit
         j = 0
         do while (break)
-            call gl8(y, dt / 25.0, kcom)  ! Integración con paso refinado 20
+            call gl8(y, dt / 20.0, kcom)  ! Integración con paso refinado 20
             j = j + 1
             if (epsilon(y) >= 1.0) then
                 break = .false.  ! Condición de salida
@@ -121,10 +121,9 @@ contains
         dydx(2) = -3.0 * y(3) * y(2) - Vprime(y)
         dydx(3) = -0.5 * y(2)*y(2)
         dydx(4) = y(3)
-        dydx(5) = y(6) * exp(-y(4))
-        dydx(6) = -(kcom*kcom - zpp_over_z(y) - y(7)*y(7)) * y(5) * exp(-y(4))
-        dydx(7) = -2.0 * (y(7) * y(6) / y(5)) * exp(-y(4)) + &
-                  source_open(mod_pref, y) * exp(-y(4)) / (2.0 * y(7) * y(5)*y(5))  ! Adición de la fuente
+        dydx(5) = 2.0*kcom*(y(6) + source_open(mod_pref, y)) * exp(-y(4))
+        dydx(6) = (kcom*y(7)-y(5)*(kcom - zpp_over_z(y)/kcom))*  exp(-y(4))
+        dydx(7) = -2.0 * (kcom - zpp_over_z(y)/kcom)*exp(-y(4))*y(6)  ! Adición de la fuente
     end subroutine evalf
 
     ! 🔹 Integrador Gauss-Legendre de orden 10
